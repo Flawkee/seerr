@@ -7122,7 +7122,7 @@ paths:
   /media/{mediaId}/file:
     delete:
       summary: Delete media file
-      description: Removes a media file from radarr/sonarr. The `ADMIN` permission is required to perform this action.
+      description: Removes a media file from radarr/sonarr and clears the related requests and media data for that quality only. The `ADMIN` permission is required to perform this action.
       tags:
         - media
       parameters:

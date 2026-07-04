@@ -5,6 +5,7 @@ import TheMovieDb from '@server/api/themoviedb';
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import { MediaRequest } from '@server/entity/MediaRequest';
 import Season from '@server/entity/Season';
 import { User } from '@server/entity/User';
 import type {
@@ -205,6 +206,7 @@ mediaRoutes.delete(
       const mediaRepository = getRepository(Media);
       const media = await mediaRepository.findOneOrFail({
         where: { id: Number(req.params.id) },
+        relations: { requests: true },
       });
 
       const is4k = String(req.query.is4k) === 'true';
@@ -276,6 +278,45 @@ mediaRoutes.delete(
           throw new Error('TVDB ID not found');
         }
         await (service as SonarrAPI).removeSeries(tvdbId);
+      }
+
+      const requestRepository = getRepository(MediaRequest);
+      const removedQualityRequests = media.requests.filter(
+        (request) => request.is4k === is4k
+      );
+      const remainingRequests = media.requests.filter(
+        (request) => request.is4k !== is4k
+      );
+
+      if (removedQualityRequests.length > 0) {
+        await requestRepository.remove(removedQualityRequests);
+      }
+
+      media.requests = remainingRequests;
+
+      const otherQualityStatus = is4k ? media.status : media.status4k;
+      const otherQualityInUse =
+        remainingRequests.length > 0 ||
+        (otherQualityStatus !== MediaStatus.UNKNOWN &&
+          otherQualityStatus !== MediaStatus.DELETED);
+
+      if (otherQualityInUse) {
+        media[is4k ? 'status4k' : 'status'] = MediaStatus.UNKNOWN;
+        media[is4k ? 'serviceId4k' : 'serviceId'] = null;
+        media[is4k ? 'externalServiceId4k' : 'externalServiceId'] = null;
+        media[is4k ? 'externalServiceSlug4k' : 'externalServiceSlug'] = null;
+        media[is4k ? 'ratingKey4k' : 'ratingKey'] = null;
+        media[is4k ? 'jellyfinMediaId4k' : 'jellyfinMediaId'] = null;
+
+        if (media.mediaType === MediaType.TV) {
+          for (const season of media.seasons) {
+            season[is4k ? 'status4k' : 'status'] = MediaStatus.UNKNOWN;
+          }
+        }
+
+        await mediaRepository.save(media);
+      } else {
+        await mediaRepository.remove(media);
       }
 
       return res.status(204).send();
